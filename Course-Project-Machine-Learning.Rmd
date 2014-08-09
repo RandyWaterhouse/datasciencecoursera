@@ -1,0 +1,112 @@
+---
+output: html_document
+---
+# Course Project for course "Practical Machine Learning"
+
+## Summary
+This analysis uses a machine learning algorithm to predict certain workout activities from
+a set of measurements taken for the purpose of human activity recognition. A good predictive
+accuracy is achieved using the random forest method.
+
+## Data Acquisition and Data Preparation
+Data was downloaded form http://groupware.les.inf.puc-rio.br/har
+It was originally used for this publication:
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+The data consists of 19622 training data sets (measurements) and 20 test data sets. Each measurement consists of 160 variables. Most of them correspond to measurements of accelerometers worn by workout participants doing a weightlifting exercise correctly or (intentionally) the wrong way.
+
+The first seven variables are of administrative nature (e.g. timestamps) and have no predictive value for unrelated datasets. They are therefore dropped from the training dataset. 
+
+The outcome (one of five categories "A" through "E" with A representing the proper weightlifting exercise and B-E certain mistakes in doing the exercises) is converted to a factor variable.
+
+The dataset has a large number of missing values (NA) in it. This causes problems with the machine learning algorithms used in this analysis. Therefore all variables with at least 50 missing values in the training set are dropped. 53 variables (i.e. 52 predictors and the outcome classification) remain after this step.
+
+Finally, 75% of the training data set is used to train models while 25% of it are set aside for cross-validation purposes. A fixed random-number seed is used to achieve reproducability of the analysis.
+
+```{r dataload, message=FALSE}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rattle)
+#library(doMC)
+#registerDoMC(cores = 4)
+pmlTrain <- read.csv("pml-training.csv",header=TRUE,sep=",",stringsAsFactors=FALSE)
+pmlTest <- read.csv("pml-testing.csv",header=TRUE,sep=",",stringsAsFactors=FALSE)
+pmlTrainSub<-pmlTrain[,-c(1,2,3,4,5,6,7)]
+pmlTrainSub$classe<-factor(pmlTrainSub$classe)
+pmlTrainSub[pmlTrainSub==""] <- NA
+NAcols <- rep(FALSE, ncol(pmlTrainSub))
+for (i in 1:ncol(pmlTrainSub)) {
+        if( sum(is.na(pmlTrainSub[,i])) > 50) {
+                NAcols[i] <- TRUE
+        }
+}
+pmlTrainSub2 <- pmlTrainSub[,!NAcols]
+dim(pmlTrainSub2)
+set.seed(12345)
+inTrain <- createDataPartition(pmlTrainSub2$classe, p = 0.75, list=FALSE)
+training <- pmlTrainSub2[inTrain,]
+crossval <- pmlTrainSub2[-inTrain,]
+```
+
+## Model Fitting
+Several machine learning algorithms were tried out, including random forests, classification trees and model based predictions using "Naive Bayes" and "Linear Discriminant Analysis" methods. It turned out that the random forest approach gave the best predictive performance. 
+
+However, if trying to fit the random forest with all 53 variables the computing time is prohibitive. Therefore the number of variables was further reduced by removing variables which were higly correlated to other variables in the data set and therefore had little marginal predictive value. This leaves 22 variables (21 predictors) for the final fit.
+The predictor variables are:
+* gyros_belt_x, gyros_belt_y, gyros_belt_z
+* magnet_belt_z
+* roll_arm, pitch_arm, yaw_arm, total_accel_arm
+* gyros_arm_x, gyros_arm_z
+* roll_dumbbell, pitch_dumbbell
+* gyros_dumbbell_z
+* roll_forearm, pitch_forearm, yaw_forearm
+* total_accel_forearm, gyros_forearm_x, accel_forearm_z, magnet_forearm_x, magnet_forearm_y       
+
+```{r modelfit}
+corMat <- cor(training[,-dim(training)[2]],)
+highlyCor <- findCorrelation(corMat, cutoff = 0.5)
+smallTraining <- training[,-highlyCor]
+model1 <- train(classe ~ .,method="rf",data=smallTraining,trControl=trainControl(method="cv"),importance=TRUE,proximity=TRUE,verboseIter=TRUE)
+#load(file="model1.RData")
+save(model1, file="model1.RData")
+save(smallTraining, file="smallTraining.RData")
+model1$finalModel
+crossvalPred <- predict(model1, newdata=crossval)
+confusionMat <- confusionMatrix(crossvalPred, crossval$classe)
+confusionMat$table
+crossvalAcc <- sum((crossvalPred==crossval$classe))/dim(crossval)[1]
+crossvalAcc
+```
+
+As seen from the R output, the cross validation based on the 25% percent of the training data set aside for cross validation yields an accuracy of about 98.5%. So the out-of-sample-error is 1.5% (100% minus 98.5% because the cross validation data wasn't used in training the model). The rather high accuracy justifies the choices for the cutoffs for correlated predictors (0.5) and variables dropped due to NAs (>50 NAs in training data set). Because of the still very time-consuming model fitting no further modifications of the cut-offs was tried.
+
+There are four predictor variables which are most important for the fit, namely pitch_forearm, magnet_belt_z, roll_forearm and roll_dumbbell, as can be seen in this plot:
+```{r plot1}
+par(mar=c(3,2,3,2))
+varImpPlot(model1$finalModel,type=2,sort=TRUE,main="Variable importance in model fit",pch=19,col="purple",col.lab="white")
+title(xlab="mean decrease in Gini parameter",ylab="predictor variable")
+```
+
+As an example of how the most important variables contribute to the differentiation of the outcomes, the next plot shows forearm pitch vs. forearm roll with the outcome (A-E) color-coded:
+```{r plot2}
+plot(smallTraining$pitch_forearm,smallTraining$roll_forearm,col=smallTraining$classe,xlab="pitch forearm (degrees)",ylab="roll forearm (degrees)",pch=19,main="Training data set: pitch forearm vs. roll forearm",cex=0.5)
+legend("left",c("A","B","C","D","E"),col=1:5,pch=19)
+```
+
+The following plot shows the error rates for the five outcomes of "classe" as a function of the number of trees in the random forest:
+```{r plot3}
+#layout(matrix(c(1,2),nrow=1), width=c(4,1)) 
+plot(model1$finalModel,log="y",main="Error rates vs. number of trees for final model")
+legend("topright",c("A","B","C","D","E"),col=1:5,cex=0.8,fill=1:5)
+```
+Obviously, beyond about 100 trees no further significant improvement in the error rate is
+achieved.
+
+The final model is then used to predict activities for the 20 test cases:
+```{r predtest}
+predict(model1, pmlTest)
+```
+These predictions were submitted to the Coursera auto-grader and resulted in a grade of 100%, further indicating that the model correctly predicts the manner in which the weightlifting activities are done.
+
+Inspiration from work by Aous Abdo was used in this analysis.
