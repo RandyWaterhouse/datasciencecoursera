@@ -98,10 +98,10 @@ crossval &lt;- pmlTrainSub2[-inTrain,]</code></pre>
 <pre class="r"><code>corMat &lt;- cor(training[,-dim(training)[2]],)
 highlyCor &lt;- findCorrelation(corMat, cutoff = 0.5)
 smallTraining &lt;- training[,-highlyCor]
-#model1 &lt;- train(classe ~ .,method=&quot;rf&quot;,data=smallTraining,trControl=trainControl(method=&quot;cv&quot;),importance=TRUE,proximity=TRUE,verboseIter=TRUE)
-load(file=&quot;model1.RData&quot;)
-#save(model1, file=&quot;model1.RData&quot;)
-#save(smallTraining, file=&quot;smallTraining.RData&quot;)
+model1 &lt;- train(classe ~ .,method=&quot;rf&quot;,data=smallTraining,trControl=trainControl(method=&quot;cv&quot;),importance=TRUE,proximity=TRUE,verboseIter=TRUE)
+#load(file=&quot;model1.RData&quot;)
+save(model1, file=&quot;model1.RData&quot;)
+save(smallTraining, file=&quot;smallTraining.RData&quot;)
 model1$finalModel</code></pre>
 <pre><code>## 
 ## Call:
